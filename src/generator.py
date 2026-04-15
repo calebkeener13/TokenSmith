@@ -1,6 +1,6 @@
 import textwrap, re
 from typing import Optional
-from llama_cpp import Llama
+from llama_cpp import Llama, LlamaRAMCache
 
 ANSWER_START = "<<<ANSWER>>>"
 ANSWER_END   = "<<<END>>>"
@@ -129,6 +129,7 @@ def get_llama_model(
                 verbose=False,
                 n_gpu_layers=n_gpu_layers,
                 n_threads=n_threads,
+                flash_attn=True,
             )
             if n_gpu_layers != 0:
                 print(f"[TokenSmith] Generator loaded on GPU (n_gpu_layers={n_gpu_layers})")
@@ -140,7 +141,11 @@ def get_llama_model(
                 verbose=False,
                 n_gpu_layers=0,
                 n_threads=n_threads,
+                flash_attn=True,
             )
+
+        cache = LlamaRAMCache()
+        _LLM_CACHE[model_path].set_cache(cache)
     return _LLM_CACHE[model_path]
 
 def stream_llama_cpp(
