@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from src.config import RAGConfig
+from src.hardware import apply_hardware_config
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
@@ -358,6 +359,7 @@ def main():
     if not config_path.exists(): raise FileNotFoundError("config/config.yaml not found.")
     cfg = RAGConfig.from_yaml(config_path)
     print(f"Loaded configuration from {config_path.resolve()}.")
+    apply_hardware_config(cfg)
     if args.mode == "index":
         run_index_mode(args, cfg)
     elif args.mode == "chat":

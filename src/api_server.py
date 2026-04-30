@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.config import RAGConfig
+from src.hardware import apply_hardware_config
 from src.generator import answer
 from src.feedback_store import (
     init_feedback_db,
@@ -175,7 +176,8 @@ async def lifespan(app: FastAPI):
     if not config_path.exists():
         raise FileNotFoundError(f"No config file found at {config_path}")
 
-    _config = RAGConfig.from_yaml(config_path)    
+    _config = RAGConfig.from_yaml(config_path)
+    apply_hardware_config(_config)
     _logger = get_logger()
 
     try:
