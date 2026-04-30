@@ -15,6 +15,10 @@ if [[ "$OS" == "Darwin" ]]; then
         echo "Apple Silicon detected - enabling Metal support"
         export CMAKE_ARGS="-DGGML_METAL=on -DGGML_ACCELERATE=on"
         export FORCE_CMAKE=1
+    else
+        echo "Intel Mac detected - disabling Metal, CPU only"
+        export CMAKE_ARGS="-DGGML_METAL=off"
+        export FORCE_CMAKE=1
     fi
 elif [[ "$OS" == "Linux" ]]; then
     if command -v nvidia-smi &> /dev/null; then
@@ -22,8 +26,13 @@ elif [[ "$OS" == "Linux" ]]; then
         export CMAKE_ARGS="-DGGML_CUDA=on"
         export FORCE_CMAKE=1
     else
+        echo "Linux CPU-only detected"
         export CMAKE_ARGS="-DGGML_ACCELERATE=on"
     fi
+elif [[ "$OS" == MINGW* || "$OS" == MSYS* || "$OS" == CYGWIN* ]]; then
+    echo "Windows (Git Bash/MINGW) detected - CPU only"
+    export CMAKE_ARGS="-DGGML_METAL=off -DGGML_CUDA=off"
+    export FORCE_CMAKE=1
 fi
 
 # Install llama-cpp-python with platform-specific optimizations
