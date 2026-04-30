@@ -16,6 +16,7 @@ from src.hardware import apply_hardware_config
 from src.generator import answer, double_answer, dedupe_generated_text
 from src.index_builder import build_index
 from src.instrumentation.logging import get_logger
+from src.instrumentation.benchmark import BenchmarkTimer
 from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.query_enhancement import generate_hypothetical_document, contextualize_query
@@ -111,6 +112,9 @@ def get_answer(
     """
     Run a single query through the pipeline.
     """    
+    bm = BenchmarkTimer()
+    bm.begin()
+
     chunks = artifacts["chunks"]
     sources = artifacts["sources"]
     retrievers = artifacts["retrievers"]
@@ -133,10 +137,11 @@ def get_answer(
         ranked_chunks, topk_idxs = use_indexed_chunks(question, chunks)
     else:
         retrieval_query = question
+        bm.start("retrieval")
         # print(f"Retrieval query: {retrieval_query}")
         if cfg.use_hyde:
             retrieval_query = generate_hypothetical_document(question, cfg.gen_model, max_tokens=cfg.hyde_max_tokens)
-        
+
         pool_n = max(cfg.num_candidates, cfg.top_k + 10)
         raw_scores: Dict[str, Dict[int, float]] = {}
         for retriever in retrievers:
@@ -153,11 +158,12 @@ def get_answer(
         # print(f"Corresponding scores: {scores[:cfg.top_k]}")
         topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
         ranked_chunks = [chunks[i] for i in topk_idxs]
+        bm.stop("retrieval")
         # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
         # print("Len Ranked chunks:", len(ranked_chunks))
         # print("Example ranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks retrieved")
-        
-        
+
+
         # Capture chunk info if in test mode
         if is_test_mode:
             # Compute individual ranker ranks
@@ -188,7 +194,9 @@ def get_answer(
                 })
 
         # Step 3: Final re-ranking
+        bm.start("rerank")
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
+        bm.stop("rerank")
         # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
         # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
@@ -220,16 +228,28 @@ def get_answer(
             system_prompt_mode=system_prompt,
         )
 
+    bm.start("generation")
     if is_test_mode:
         # We do not render MD in the test mode
         ans = ""
+        token_count = 0
         for delta in stream_iter:
             ans += delta
+            token_count += 1
         ans = dedupe_generated_text(ans)
+        bm.stop("generation")
+        bm.end()
+        bm.finalize(token_count)
         return ans, chunks_info, hyde_query
     else:
         # Accumulate the full text while rendering incremental Markdown chunks
-        ans = render_streaming_ans(console, stream_iter)
+        ans, token_count = render_streaming_ans(console, stream_iter)
+
+        bm.stop("generation")
+        bm.end()
+        bm.finalize(token_count)
+        bm.save()
+        console.print(bm.summary())
 
         # Logging
         meta = artifacts.get("meta", [])
@@ -254,6 +274,7 @@ def get_answer(
 
 def render_streaming_ans(console, stream_iter):
     ans = ""
+    token_count = 0
     is_first = True
     with Live(console=console, refresh_per_second=8) as live:
         for delta in stream_iter:
@@ -261,11 +282,12 @@ def render_streaming_ans(console, stream_iter):
                 console.print("\n[bold cyan]=== START OF ANSWER ===[/bold cyan]\n")
                 is_first = False
             ans += delta
+            token_count += 1
             live.update(Markdown(ans))
     ans = dedupe_generated_text(ans)
     live.update(Markdown(ans))
     console.print("\n[bold cyan]=== END OF ANSWER ===[/bold cyan]\n")
-    return ans
+    return ans, token_count
 
 def get_keywords(question: str) -> list:
     """
